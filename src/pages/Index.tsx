@@ -68,8 +68,8 @@ export default function Index() {
       <section className="relative overflow-hidden bg-gradient-hero py-12 md:py-20">
         <div className="container">
           <div className="mx-auto max-w-3xl text-center animate-fade-in">
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">ഇ - ലൈഫ് സൊസൈറ്റി സംരംഭക മേള 2025 -26
-Made Simple<span className="block mt-2 gradient-text">കൂട്ടായ്മ </span>
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">സംരംഭക മേള 2025 -26
+<span className="block mt-2 gradient-text">കൂട്ടായ്മ </span>
             </h1>
             <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
               Streamline your event operations with comprehensive tools for scheduling, 
