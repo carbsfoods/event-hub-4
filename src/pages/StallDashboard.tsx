@@ -261,46 +261,53 @@ export default function StallDashboard() {
           </CardContent>
         </Card>
 
-        {/* Payments Table */}
+        {/* Billing History Table */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5" />
-              Payment History
+              <Receipt className="h-5 w-5" />
+              Billing History
             </CardTitle>
-            <CardDescription>All payments received for your stall</CardDescription>
+            <CardDescription>All billed transactions for your stall</CardDescription>
           </CardHeader>
           <CardContent>
-            {payments.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">No payments yet</p>
+            {transactions.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">No billing records yet</p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>S.No</TableHead>
+                      <TableHead>Receipt</TableHead>
+                      <TableHead>Customer</TableHead>
                       <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Total Billed</TableHead>
-                      <TableHead className="text-right">Margin</TableHead>
-                      <TableHead className="text-right">Amount Paid</TableHead>
-                      <TableHead>Narration</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {payments.map((payment) => (
-                      <TableRow key={payment.id}>
+                    {transactions.map((tx) => (
+                      <TableRow key={tx.id}>
+                        <TableCell>{tx.serial_number}</TableCell>
+                        <TableCell className="font-mono text-xs">{tx.receipt_number}</TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{tx.customer_name || "-"}</p>
+                            <p className="text-xs text-muted-foreground">{tx.customer_mobile || "-"}</p>
+                          </div>
+                        </TableCell>
                         <TableCell className="text-xs">
-                          {payment.created_at ? format(new Date(payment.created_at), "dd/MM/yy HH:mm") : "-"}
+                          {tx.created_at ? format(new Date(tx.created_at), "dd/MM/yy HH:mm") : "-"}
                         </TableCell>
-                        <TableCell className="text-right">
-                          ₹{Number(payment.total_billed || 0).toLocaleString()}
+                        <TableCell className="text-right font-medium">
+                          ₹{Number(tx.total).toLocaleString()}
                         </TableCell>
-                        <TableCell className="text-right text-destructive">
-                          -₹{Number(payment.margin_deducted || 0).toLocaleString()}
+                        <TableCell>
+                          <Badge variant={tx.status === "delivered" ? "default" : "secondary"}>
+                            {tx.status === "delivered" ? "Delivered" : "Pending"}
+                          </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-medium text-green-600">
-                          ₹{Number(payment.amount_paid).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-sm">{payment.narration || "-"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
