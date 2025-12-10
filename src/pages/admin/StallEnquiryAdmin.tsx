@@ -58,6 +58,8 @@ export default function StallEnquiryAdmin() {
   const [isActive, setIsActive] = useState(true);
   const [viewingEnquiry, setViewingEnquiry] = useState<Enquiry | null>(null);
   const [selectedPanchayath, setSelectedPanchayath] = useState<string>('all');
+  const [deletingEnquiry, setDeletingEnquiry] = useState<Enquiry | null>(null);
+  const [deleteVerificationCode, setDeleteVerificationCode] = useState('');
 
   useEffect(() => {
     if (!isLoading && !admin) {
@@ -267,6 +269,35 @@ export default function StallEnquiryAdmin() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
   });
+
+  const deleteEnquiryMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('stall_enquiries')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stall-enquiries'] });
+      setDeletingEnquiry(null);
+      setDeleteVerificationCode('');
+      toast({ title: 'Enquiry deleted successfully' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  });
+
+  const handleDeleteEnquiry = () => {
+    if (deleteVerificationCode !== '9497589094') {
+      toast({ title: 'Invalid verification code', variant: 'destructive' });
+      return;
+    }
+    if (deletingEnquiry) {
+      deleteEnquiryMutation.mutate(deletingEnquiry.id);
+    }
+  };
 
   if (isLoading || !admin) {
     return (
@@ -563,6 +594,46 @@ export default function StallEnquiryAdmin() {
                   </DialogContent>
                 </Dialog>
 
+                {/* Delete Confirmation Dialog */}
+                <Dialog open={!!deletingEnquiry} onOpenChange={(open) => { if (!open) { setDeletingEnquiry(null); setDeleteVerificationCode(''); } }}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle className="text-red-600">Delete Enquiry</DialogTitle>
+                    </DialogHeader>
+                    {deletingEnquiry && (
+                      <div className="space-y-4 py-4">
+                        <p className="text-sm text-muted-foreground">
+                          Are you sure you want to delete the enquiry from <strong>{deletingEnquiry.name}</strong> ({deletingEnquiry.mobile})?
+                        </p>
+                        <div>
+                          <Label>Enter verification code to confirm</Label>
+                          <Input
+                            type="password"
+                            value={deleteVerificationCode}
+                            onChange={(e) => setDeleteVerificationCode(e.target.value)}
+                            placeholder="Enter verification code"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="destructive" 
+                            onClick={handleDeleteEnquiry}
+                            disabled={deleteEnquiryMutation.isPending}
+                          >
+                            {deleteEnquiryMutation.isPending ? 'Deleting...' : 'Delete'}
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            onClick={() => { setDeletingEnquiry(null); setDeleteVerificationCode(''); }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
+
                 {/* Panchayath Filter */}
                 <div className="mb-4 flex items-center gap-4">
                   <div className="flex items-center gap-2">
@@ -658,6 +729,14 @@ export default function StallEnquiryAdmin() {
                                   <RotateCcw className="h-4 w-4 text-orange-600" />
                                 </Button>
                               )}
+                              <Button 
+                                variant="ghost" 
+                                size="icon"
+                                onClick={() => setDeletingEnquiry(enquiry)}
+                                title="Delete"
+                              >
+                                <Trash2 className="h-4 w-4 text-red-600" />
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
