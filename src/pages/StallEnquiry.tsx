@@ -94,11 +94,24 @@ export default function StallEnquiry() {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
+      // Check for duplicate mobile number
+      const { data: existing, error: checkError } = await supabase
+        .from('stall_enquiries')
+        .select('id')
+        .eq('mobile', mobile.trim())
+        .maybeSingle();
+      
+      if (checkError) throw checkError;
+      
+      if (existing) {
+        throw new Error('ഈ മൊബൈൽ നമ്പർ ഉപയോഗിച്ച് ഇതിനകം ഒരു അപേക്ഷ സമർപ്പിച്ചിട്ടുണ്ട്.');
+      }
+
       const { error } = await supabase
         .from('stall_enquiries')
         .insert({
           name,
-          mobile,
+          mobile: mobile.trim(),
           panchayath_id: selectedPanchayath || null,
           ward_id: selectedWard || null,
           responses
