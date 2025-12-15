@@ -394,6 +394,54 @@ export type Database = {
         }
         Relationships: []
       }
+      sales_returns: {
+        Row: {
+          bill_id: string
+          created_at: string
+          id: string
+          items: Json
+          reason: string | null
+          return_amount: number
+          return_number: string
+          stall_id: string
+        }
+        Insert: {
+          bill_id: string
+          created_at?: string
+          id?: string
+          items?: Json
+          reason?: string | null
+          return_amount?: number
+          return_number: string
+          stall_id: string
+        }
+        Update: {
+          bill_id?: string
+          created_at?: string
+          id?: string
+          items?: Json
+          reason?: string | null
+          return_amount?: number
+          return_number?: string
+          stall_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_returns_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "billing_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_returns_stall_id_fkey"
+            columns: ["stall_id"]
+            isOneToOne: false
+            referencedRelation: "stalls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stall_enquiries: {
         Row: {
           created_at: string

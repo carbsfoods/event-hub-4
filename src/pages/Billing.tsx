@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { 
   Receipt, 
   Plus, 
@@ -19,7 +20,8 @@ import {
   CheckCircle,
   Pencil,
   BarChart3,
-  Store
+  Store,
+  RotateCcw
 } from "lucide-react";
 import {
   Select,
@@ -40,6 +42,7 @@ type BillingTransaction = Tables<"billing_transactions">;
 type Registration = Tables<"registrations">;
 type Payment = Tables<"payments">;
 type Panchayath = Tables<"panchayaths">;
+type SalesReturn = Tables<"sales_returns">;
 
 interface BillItem {
   id: string;
@@ -49,6 +52,10 @@ interface BillItem {
   originalPrice: number;
   discount: number;
   event_margin: number;
+}
+
+interface ReturnItem extends BillItem {
+  returnQty: number;
 }
 
 export default function Billing() {
@@ -81,6 +88,12 @@ export default function Billing() {
   // Stall Summary state
   const [summaryPanchayath, setSummaryPanchayath] = useState<string>("all");
   const [summaryStallId, setSummaryStallId] = useState<string>("");
+
+  // Sales Return state
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [selectedBillForReturn, setSelectedBillForReturn] = useState<any>(null);
+  const [returnItems, setReturnItems] = useState<ReturnItem[]>([]);
+  const [returnReason, setReturnReason] = useState("");
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -186,6 +199,19 @@ export default function Billing() {
     }
   });
 
+  // Fetch sales returns
+  const { data: salesReturns = [] } = useQuery({
+    queryKey: ['sales_returns'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('sales_returns')
+        .select('*, billing_transactions(receipt_number, serial_number, stalls(counter_name))')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data;
+    }
+  });
+
   // Create bill mutation
   const createBillMutation = useMutation({
     mutationFn: async (bill: { stall_id: string; items: BillItem[]; subtotal: number; total: number; customer_name?: string; customer_mobile?: string }) => {
@@ -239,6 +265,45 @@ export default function Billing() {
     },
     onError: (error) => {
       toast.error("Failed to update status: " + error.message);
+    }
+  });
+
+  // Create sales return mutation
+  const createSalesReturnMutation = useMutation({
+    mutationFn: async (returnData: { 
+      bill_id: string; 
+      stall_id: string; 
+      items: ReturnItem[]; 
+      return_amount: number; 
+      reason?: string 
+    }) => {
+      const returnNumber = `RET-${Date.now()}`;
+      const { data, error } = await supabase
+        .from('sales_returns')
+        .insert({
+          bill_id: returnData.bill_id,
+          stall_id: returnData.stall_id,
+          items: JSON.parse(JSON.stringify(returnData.items.filter(i => i.returnQty > 0))),
+          return_amount: returnData.return_amount,
+          return_number: returnNumber,
+          reason: returnData.reason || null
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales_returns'] });
+      queryClient.invalidateQueries({ queryKey: ['billing_transactions'] });
+      setReturnDialogOpen(false);
+      setSelectedBillForReturn(null);
+      setReturnItems([]);
+      setReturnReason("");
+      toast.success("Sales return recorded successfully!");
+    },
+    onError: (error) => {
+      toast.error("Failed to record sales return: " + error.message);
     }
   });
 
@@ -505,6 +570,52 @@ export default function Billing() {
     }
   };
 
+  // Sales return helpers
+  const openReturnDialog = (bill: any) => {
+    const billItemsArray = bill.items as BillItem[];
+    const itemsWithReturn: ReturnItem[] = billItemsArray.map(item => ({
+      ...item,
+      returnQty: 0
+    }));
+    setSelectedBillForReturn(bill);
+    setReturnItems(itemsWithReturn);
+    setReturnReason("");
+    setReturnDialogOpen(true);
+  };
+
+  const updateReturnQty = (itemId: string, qty: number) => {
+    setReturnItems(prev => prev.map(item => {
+      if (item.id === itemId) {
+        return { ...item, returnQty: Math.min(Math.max(0, qty), item.quantity) };
+      }
+      return item;
+    }));
+  };
+
+  const calculateReturnTotal = () => {
+    return returnItems.reduce((sum, item) => sum + (item.price * item.returnQty), 0);
+  };
+
+  const handleSalesReturn = () => {
+    const returnTotal = calculateReturnTotal();
+    if (returnTotal <= 0) {
+      toast.error("Please select items to return");
+      return;
+    }
+    createSalesReturnMutation.mutate({
+      bill_id: selectedBillForReturn.id,
+      stall_id: selectedBillForReturn.stall_id,
+      items: returnItems,
+      return_amount: returnTotal,
+      reason: returnReason.trim() || undefined
+    });
+  };
+
+  // Get returns for a specific bill
+  const getBillReturns = (billId: string) => {
+    return salesReturns.filter((r: any) => r.bill_id === billId);
+  };
+
   // Filter bills by status
   const pendingBills = bills.filter((bill: any) => bill.status === 'pending');
   const paidBills = bills.filter((bill: any) => bill.status === 'paid');
@@ -518,6 +629,7 @@ export default function Billing() {
   const totalCollectedFromBills = paidBills.reduce((sum: number, bill: any) => sum + Number(bill.total), 0);
   const totalCollectedFromStallRegs = stallPayments.reduce((sum, p) => sum + Number(p.amount_paid), 0);
   const totalCollectedFromOtherRegs = registrations.reduce((sum, reg) => sum + Number(reg.amount), 0);
+  const totalSalesReturns = salesReturns.reduce((sum: number, r: any) => sum + Number(r.return_amount), 0);
 
   // Stall Summary calculations
   const summaryStalls = summaryPanchayath === "all" 
@@ -868,13 +980,18 @@ export default function Billing() {
                 <CardContent className="py-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-muted-foreground">Total Collected</p>
-                      <p className="text-3xl font-bold text-primary">₹{totalCollectedFromBills + totalCollectedFromStallRegs + totalCollectedFromOtherRegs}</p>
+                      <p className="text-sm text-muted-foreground">Net Collected</p>
+                      <p className="text-3xl font-bold text-primary">
+                        ₹{totalCollectedFromBills + totalCollectedFromStallRegs + totalCollectedFromOtherRegs - totalSalesReturns}
+                      </p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right space-y-1">
                       <p className="text-sm text-muted-foreground">From Bills: ₹{totalCollectedFromBills}</p>
                       <p className="text-sm text-muted-foreground">Stall Registrations: ₹{totalCollectedFromStallRegs}</p>
                       <p className="text-sm text-muted-foreground">Other Registrations: ₹{totalCollectedFromOtherRegs}</p>
+                      {totalSalesReturns > 0 && (
+                        <p className="text-sm text-destructive">Sales Returns: -₹{totalSalesReturns}</p>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -936,19 +1053,39 @@ export default function Billing() {
                     <p className="text-muted-foreground text-center py-8">No paid bills yet</p>
                   ) : (
                     <div className="space-y-3">
-                      {paidBills.map((bill: any) => (
-                        <div key={bill.id} className="p-3 border border-border rounded-lg flex items-center justify-between bg-primary/5">
-                          <div>
-                            <p className="font-medium">{bill.stalls?.counter_name || 'Unknown'}</p>
-                            <p className="text-xs text-muted-foreground">{bill.receipt_number}</p>
-                            <p className="text-xs text-muted-foreground">{formatDate(bill.created_at)}</p>
+                      {paidBills.map((bill: any) => {
+                        const billReturns = getBillReturns(bill.id);
+                        const totalReturned = billReturns.reduce((sum: number, r: any) => sum + Number(r.return_amount), 0);
+                        return (
+                          <div key={bill.id} className="p-3 border border-border rounded-lg bg-primary/5">
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <p className="font-medium">{bill.stalls?.counter_name || 'Unknown'}</p>
+                                <p className="text-xs text-muted-foreground">{bill.receipt_number}</p>
+                                <p className="text-xs text-muted-foreground">{formatDate(bill.created_at)}</p>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold text-lg text-green-600">₹{bill.total}</span>
+                                <Badge variant="default" className="ml-2">Paid</Badge>
+                              </div>
+                            </div>
+                            {totalReturned > 0 && (
+                              <div className="text-xs text-destructive mb-2">
+                                Returned: ₹{totalReturned} ({billReturns.length} return{billReturns.length > 1 ? 's' : ''})
+                              </div>
+                            )}
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => openReturnDialog(bill)}
+                            >
+                              <RotateCcw className="h-4 w-4 mr-2" />
+                              Sales Return
+                            </Button>
                           </div>
-                          <div className="text-right">
-                            <span className="font-bold text-lg text-green-600">₹{bill.total}</span>
-                            <Badge variant="default" className="ml-2">Paid</Badge>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -973,6 +1110,47 @@ export default function Billing() {
                           </p>
                         </div>
                         <span className="font-bold text-green-600">₹{reg.amount}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Sales Returns Section */}
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <RotateCcw className="h-5 w-5" />
+                    Sales Returns
+                  </span>
+                  <Badge variant="destructive">{salesReturns.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {salesReturns.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">No sales returns recorded</p>
+                ) : (
+                  <div className="space-y-3">
+                    {salesReturns.slice(0, 10).map((returnItem: any) => (
+                      <div key={returnItem.id} className="p-3 border border-destructive/30 rounded-lg bg-destructive/5">
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <p className="font-medium">
+                              {returnItem.billing_transactions?.stalls?.counter_name || 'Unknown'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{returnItem.return_number}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Bill: #{returnItem.billing_transactions?.serial_number || '-'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{formatDate(returnItem.created_at)}</p>
+                          </div>
+                          <span className="font-bold text-lg text-destructive">-₹{returnItem.return_amount}</span>
+                        </div>
+                        {returnItem.reason && (
+                          <p className="text-xs text-muted-foreground mt-1">Reason: {returnItem.reason}</p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1465,6 +1643,94 @@ export default function Billing() {
                 <Button variant="outline" onClick={() => setEditingStall(null)}>Cancel</Button>
               </div>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Sales Return Dialog */}
+        <Dialog open={returnDialogOpen} onOpenChange={setReturnDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Sales Return</DialogTitle>
+            </DialogHeader>
+            {selectedBillForReturn && (
+              <div className="space-y-4 pt-4">
+                <div className="p-3 bg-muted rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium">{selectedBillForReturn.stalls?.counter_name || 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground">{selectedBillForReturn.receipt_number}</p>
+                    </div>
+                    <Badge>Bill Total: ₹{selectedBillForReturn.total}</Badge>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Select Items to Return</Label>
+                  <div className="border rounded-lg divide-y">
+                    {returnItems.map((item) => (
+                      <div key={item.id} className="p-3 flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{item.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            ₹{item.price} × {item.quantity} = ₹{item.price * item.quantity}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => updateReturnQty(item.id, item.returnQty - 1)}
+                            disabled={item.returnQty <= 0}
+                          >
+                            -
+                          </Button>
+                          <span className="w-8 text-center font-medium">{item.returnQty}</span>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => updateReturnQty(item.id, item.returnQty + 1)}
+                            disabled={item.returnQty >= item.quantity}
+                          >
+                            +
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Reason for Return (Optional)</Label>
+                  <Textarea
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    placeholder="Enter reason for return..."
+                    rows={2}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-destructive/10 rounded-lg">
+                  <span className="font-semibold">Return Amount</span>
+                  <span className="text-xl font-bold text-destructive">₹{calculateReturnTotal()}</span>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleSalesReturn} 
+                    disabled={createSalesReturnMutation.isPending || calculateReturnTotal() <= 0}
+                    className="flex-1"
+                    variant="destructive"
+                  >
+                    {createSalesReturnMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Process Return
+                  </Button>
+                  <Button variant="outline" onClick={() => setReturnDialogOpen(false)}>Cancel</Button>
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       </div>
